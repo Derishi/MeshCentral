@@ -2793,7 +2793,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         }
                         const scanid = parent.crypto.randomBytes(16).toString('hex');
                         if (parent.parent.amtRelayScans == null) { parent.parent.amtRelayScans = {}; }
-                        const scan = { nodeid: scanMesh.relayid, userid: user._id, range: command.range, min: parsedRange.min, max: parsedRange.max, expires: Date.now() + 150000 };
+                        const scan = { nodeid: scanMesh.relayid, userid: user._id, range: command.range, min: parsedRange.min, max: parsedRange.max, total: parsedRange.max - parsedRange.min + 1, completed: 0, found: 0, expires: Date.now() + 150000 };
                         scan.timer = setTimeout(function () {
                             if (parent.parent.amtRelayScans[scanid] != scan) return;
                             delete parent.parent.amtRelayScans[scanid];

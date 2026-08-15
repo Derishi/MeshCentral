@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const scanner = require('../agents/modules_meshcore/relay-range-scanner-v3');
-const tcpOnlyScanner = require('../agents/modules_meshcore/relay-range-scanner-v16');
+const tcpOnlyScanner = require('../agents/modules_meshcore/relay-range-scanner-v19');
 
 class FakeSocket extends EventEmitter {
     constructor() {
@@ -133,20 +133,26 @@ test('returns normalized TLS devices from the bounded relay TCP worker', functio
     Object.preventExtensions(child.stdout);
     child.stdin = { script: '', write: function (data) { this.script += data; } };
     var results;
+    var scheduledTimeout;
+    const progress = [];
     const started = tcpOnlyScanner.scan('192.0.2.10-192.0.2.11', 10000, function (scanResults) { results = scanResults; }, {
         platform: 'linux',
         childProcess: { execFile: function (path, args) { assert.equal(path, '/bin/sh'); assert.deepEqual(args, ['sh']); return child; } },
         mesh: mesh,
-        setTimeout: function () { }
+        onProgress: function (completed, total, found) { progress.push([completed, total, found]); },
+        setTimeout: function (callback, delay) { scheduledTimeout = delay; }
     });
 
     assert.equal(started, true);
     assert.equal(mesh.amtRangeScanChild, child);
     assert.match(child.stdin.script, /for ip in 192\.0\.2\.10 192\.0\.2\.11/);
+    assert.match(child.stdin.script, /-P32/);
     assert.match(child.stdin.script, /if curl -k -sS --connect-timeout 3 --max-time 3/);
     assert.doesNotMatch(child.stdin.script, /\/dev\/tcp/);
-    child.stdout.emit('data', Buffer.from('192.0.2.10,1\n'));
+    child.stdout.emit('data', Buffer.from('192.0.2.10,1\nP,192.0.2.10\nP,192.0.2.11\n'));
     child.emit('exit', 0);
     assert.deepEqual(results, { '192.0.2.10': { ver: 'Unknown', tls: 1, state: 2, hostname: '192.0.2.10', hosttype: 'addr' } });
+    assert.deepEqual(progress, [[0, 2, 0], [0, 2, 1], [2, 2, 1]]);
+    assert.equal(scheduledTimeout, 120000);
     assert.equal(mesh.amtRangeScanChild, undefined);
 });

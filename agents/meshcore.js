@@ -1301,8 +1301,8 @@ function handleServerCommand(data) {
                 if ((typeof data.scanid != 'string') || (data.scanid.length != 32) || (typeof data.range != 'string')) break;
                 mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, status: 'started' });
                 try {
-                    const scanner = require('relay-range-scanner-v16');
-                    if (scanner.scan(data.range, 10000, function (results, error) { mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, results: results, error: error }); }, { mesh: mesh }) == false) {
+                    const scanner = require('relay-range-scanner-v19');
+                    if (scanner.scan(data.range, 10000, function (results, error) { mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, results: results, error: error }); }, { mesh: mesh, onProgress: function (completed, total, found) { mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, progress: { completed: completed, total: total, found: found } }); } }) == false) {
                         mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, results: null, error: 'The relay agent rejected this scan range.' });
                     }
                 } catch (ex) {

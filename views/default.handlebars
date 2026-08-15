@@ -1667,6 +1667,7 @@
         var multiDesktop = {};
         var serverPublicNamePort = '{{{serverDnsName}}}:{{{serverPublicPort}}}';
         var amtScanResults = null;
+        var amtScanStartTime = null;
         var debugmode = 0;
         var windowsBrowser = detectWindowsBrowser();
         var attemptWebRTC = ((features & 128) != 0);
@@ -3938,10 +3939,25 @@
                                 if (x == '') { x = '<div style=width:100%;text-align:center;margin-top:12px>' + "Scan returned no results." + '</div><div style=width:100%;text-align:center;margin-top:12px;color:gray;line-height:1.5>' + "Sample IP range values" + '<br />192.168.0.100<br />192.168.1.0/24<br />192.167.0.1-192.168.0.100</div>'; }
                             }
                             // Set the html in the dialog box and re-enable the scan button
+                            amtScanStartTime = null;
                             QH('dp1results', x);
                             QE('dp1range', true);
                             QE('dp1rangebutton', true);
                             QE('d2scanSelectButton', true);
+                            break;
+                        }
+                        case 'scanamtdeviceprogress': {
+                            if ((xxdialogMode == null) || (!Q('dp1range')) || (!Q('dp1scanprogress')) || (xxdialogTag != ('AMTSCAN:' + message.event.range))) return;
+                            if ((typeof message.event.completed != 'number') || (typeof message.event.total != 'number') || (typeof message.event.found != 'number') || (message.event.completed < 0) || (message.event.completed > message.event.total) || (message.event.found < 0) || (message.event.found > message.event.total) || (message.event.total < 1)) return;
+                            var percent = Math.floor((message.event.completed * 100) / message.event.total);
+                            var progressText = 'Checking ' + message.event.completed + ' of ' + message.event.total + ' addresses (' + percent + '%), ' + message.event.found + ' device' + (message.event.found == 1 ? '' : 's') + ' found';
+                            if ((message.event.completed >= 16) && (amtScanStartTime != null)) {
+                                var elapsedSeconds = Math.max(1, Math.round((Date.now() - amtScanStartTime) / 1000));
+                                var remainingSeconds = Math.max(0, Math.ceil((elapsedSeconds * (message.event.total - message.event.completed)) / message.event.completed));
+                                if (remainingSeconds > 0) { progressText += ', about ' + remainingSeconds + ' second' + (remainingSeconds == 1 ? '' : 's') + ' remaining'; }
+                            }
+                            Q('dp1scanprogress').style.width = percent + '%';
+                            QH('dp1scanprogresslabel', progressText);
                             break;
                         }
                         case 'notify': {
@@ -5744,7 +5760,9 @@
             if (range == '') return;
             QE('dp1range', false);
             QE('dp1rangebutton', false);
-            QH('dp1results', '<div style=width:100%;text-align:center;margin-top:20px>' + "Scanning..." + '</div><div style=width:100%;text-align:center;margin-top:6px;color:#666>' + range + '</div>');
+            amtScanResults = null;
+            amtScanStartTime = Date.now();
+            QH('dp1results', '<div style=width:100%;text-align:center;margin-top:20px>' + "Scanning..." + '</div><div style=width:100%;text-align:center;margin-top:6px;color:#666>' + range + '</div><div style="margin:16px 18px 0;height:10px;background-color:#ddd"><div id=dp1scanprogress style="width:0%;height:10px;background-color:#3d7a4a"></div></div><div id=dp1scanprogresslabel style="width:100%;text-align:center;margin-top:7px;color:#666">Checking 0 addresses</div>');
             xxdialogTag = 'AMTSCAN:' + range;
             meshserver.send({ action: 'scanamtdevice', meshid: Q('amtScanMeshId').value, range: range });
         }

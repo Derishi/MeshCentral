@@ -1230,6 +1230,15 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                         const scan = (scans != null) ? scans[command.scanid] : null;
                         if ((scan == null) || (scan.nodeid != obj.dbNodeKey) || (scan.expires < Date.now())) break;
                         if (command.status == 'started') { scan.started = true; break; }
+                        if (command.progress != null) {
+                            const progress = command.progress;
+                            if ((typeof progress != 'object') || (common.validateInt(progress.completed, 0, scan.total) == false) || (common.validateInt(progress.found, 0, scan.total) == false) || (progress.total !== scan.total) || (progress.completed < scan.completed) || (progress.found < scan.found)) break;
+                            scan.completed = progress.completed;
+                            scan.found = progress.found;
+                            const progressWs = parent.wssessions2[scan.sessionid];
+                            if (progressWs != null) { try { progressWs.send(JSON.stringify({ action: 'event', event: { action: 'scanamtdeviceprogress', range: scan.range, completed: scan.completed, total: scan.total, found: scan.found, nolog: 1 } })); } catch (ex) { } }
+                            break;
+                        }
                         clearTimeout(scan.timer);
                         delete scans[command.scanid];
 
