@@ -1224,6 +1224,31 @@ module.exports.CreateMeshAgent = function (parent, db, ws, req, args, domain) {
                         parent.routeAgentCommand(command, obj.domain.id, obj.dbNodeKey, obj.dbMeshKey);
                         break;
                     }
+                case 'amtRangeScan':
+                    {
+                        const scans = parent.parent.amtRelayScans;
+                        const scan = (scans != null) ? scans[command.scanid] : null;
+                        if ((scan == null) || (scan.nodeid != obj.dbNodeKey) || (scan.expires < Date.now())) break;
+                        if (command.status == 'started') { scan.started = true; break; }
+                        clearTimeout(scan.timer);
+                        delete scans[command.scanid];
+
+                        var results = null;
+                        if ((command.results != null) && (typeof command.results == 'object')) {
+                            results = {};
+                            var resultCount = 0;
+                            for (var address in command.results) {
+                                const result = command.results[address];
+                                const resultRange = parent.CreateMeshUserParseAmtScanRange(address);
+                                if ((++resultCount > 1024) || (resultRange == null) || (resultRange.min < scan.min) || (resultRange.max > scan.max) || (typeof result != 'object') || (common.validateString(result.hostname, 1, 256) == false) || (common.validateString(result.ver, 1, 16) == false) || (common.validateInt(result.state, 0, 2) == false) || ((result.tls != 0) && (result.tls != 1)) || ((result.hosttype != 'addr') && (result.hosttype != 'host'))) continue;
+                                results[address] = { hostname: result.hostname, ver: result.ver, state: result.state, tls: result.tls, hosttype: result.hosttype };
+                            }
+                        }
+                        const ws = parent.wssessions2[scan.sessionid];
+                        const error = (results == null) && (typeof command.error == 'string') ? command.error : null;
+                        if (ws != null) { try { ws.send(JSON.stringify({ action: 'event', event: { action: 'scanamtdevice', range: scan.range, results: results, error: error, nolog: 1 } })); } catch (ex) { } }
+                        break;
+                    }
                 case 'software':
                     {
                         // Todo - save software into database for offline access but send to web clients for now

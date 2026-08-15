@@ -1297,6 +1297,19 @@ function handleServerCommand(data) {
             case 'agentupdate':
                 agentUpdate_Start(data.url, { hash: data.hash, tlshash: data.servertlshash, sessionid: data.sessionid });
                 break;
+            case 'amtRangeScan': {
+                if ((typeof data.scanid != 'string') || (data.scanid.length != 32) || (typeof data.range != 'string')) break;
+                mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, status: 'started' });
+                try {
+                    const scanner = require('relay-range-scanner-v16');
+                    if (scanner.scan(data.range, 10000, function (results, error) { mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, results: results, error: error }); }, { mesh: mesh }) == false) {
+                        mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, results: null, error: 'The relay agent rejected this scan range.' });
+                    }
+                } catch (ex) {
+                    mesh.SendCommand({ action: 'amtRangeScan', scanid: data.scanid, results: null, error: 'The relay agent could not initialize the network scanner.' });
+                }
+                break;
+            }
             case 'msg': {
                 switch (data.type) {
                     case 'console': { // Process a console command

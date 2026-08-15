@@ -3922,8 +3922,7 @@
                             if ((xxdialogMode == null) || (!Q('dp1range')) || (xxdialogTag != ('AMTSCAN:' + message.event.range))) return;
                             var x = '';
                             if (message.event.results == null) {
-                                // The scan could not occur because of an error. Likely the user range was invalid.
-                                x = '<div style=width:100%;text-align:center;margin-top:12px>' + "Unable to scan this address range." + '</div><div style=width:100%;text-align:center;margin-top:12px;color:gray;line-height:1.5>' + "Sample IP range values" + '<br />192.168.0.100<br />192.168.1.0/24<br />192.167.0.1-192.168.0.100</div>';
+                                x = '<div style=width:100%;text-align:center;margin-top:12px>' + EscapeHtml(message.event.error || "Unable to scan this address range.") + '</div><div style=width:100%;text-align:center;margin-top:12px;color:gray;line-height:1.5>' + "Sample IP range values" + '<br />192.168.0.100<br />192.168.1.0/24<br />192.167.0.1-192.168.0.100</div>';
                             } else {
                                 // Go thru all the results and populate the dialog box
                                 amtScanResults = message.event.results;
@@ -5550,7 +5549,7 @@
             if ((meshrights & 4) == 0) return '';
             var r = '';
             if (mesh.mtype == 1) {
-                if ((features & 1) == 0) { // If not WAN-Only
+                if (((features & 1) == 0) || mesh.relayid) { // If not WAN-Only or the AMT group has a relay
                     r += ' <a href=# style=cursor:pointer;font-size:small title="' + "Add a new Intel&reg; AMT computer that is located on the local network." + '" onclick=\'return addDeviceToMesh("' + mesh._id + '")\'>' + "Add Local" + '</a>';
                     r += ' <a href=# style=cursor:pointer;font-size:small title="' + "Add a new Intel&reg; AMT computer by scanning the local network." + '" onclick=\'return addAmtScanToMesh("' + mesh._id + '")\'>' + "Scan Network" + '</a>';
                 }
@@ -5747,7 +5746,7 @@
             QE('dp1rangebutton', false);
             QH('dp1results', '<div style=width:100%;text-align:center;margin-top:20px>' + "Scanning..." + '</div><div style=width:100%;text-align:center;margin-top:6px;color:#666>' + range + '</div>');
             xxdialogTag = 'AMTSCAN:' + range;
-            meshserver.send({ action: 'scanamtdevice', range: range });
+            meshserver.send({ action: 'scanamtdevice', meshid: Q('amtScanMeshId').value, range: range });
         }
 
         // Called when a scanned computer is checked or unchecked.

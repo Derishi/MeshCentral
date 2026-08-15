@@ -27,6 +27,41 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
     // Cross domain messages, for cross-domain administrators only.
     const allowedCrossDomainMessages = ['accountcreate', 'accountremove', 'accountchange', 'createusergroup', 'deleteusergroup', 'usergroupchange'];
 
+    parent.CreateMeshUserParseAmtScanRange = function (range) {
+        if ((typeof range != 'string') || (range.length == 0) || (range.length > 64)) return null;
+        function parseAddress(address) {
+            const parts = address.split('.');
+            if (parts.length != 4) return null;
+            var value = 0;
+            for (var i = 0; i < parts.length; i++) {
+                if (!/^(0|[1-9][0-9]{0,2})$/.test(parts[i])) return null;
+                const octet = parseInt(parts[i], 10);
+                if (octet > 255) return null;
+                value = (value * 256) + octet;
+            }
+            return value;
+        }
+        var min = null, max = null;
+        const rangeParts = range.split('-');
+        if (rangeParts.length == 2) {
+            min = parseAddress(rangeParts[0]);
+            max = parseAddress(rangeParts[1]);
+        } else {
+            const cidrParts = range.split('/');
+            if (cidrParts.length == 2) {
+                const address = parseAddress(cidrParts[0]);
+                if (!/^(1[7-9]|2[0-9]|3[0-2])$/.test(cidrParts[1])) return null;
+                const size = Math.pow(2, 32 - parseInt(cidrParts[1], 10));
+                min = Math.floor(address / size) * size;
+                max = min + size - 1;
+            } else if (rangeParts.length == 1) {
+                min = max = parseAddress(range);
+            }
+        }
+        if ((min == null) || (max == null) || (min > max) || ((max - min + 1) > 1024)) return null;
+        return { min: min, max: max };
+    }
+
     // User Consent Flags
     const USERCONSENT_DesktopNotifyUser = 1;
     const USERCONSENT_TerminalNotifyUser = 2;
@@ -2739,8 +2774,42 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 }
             case 'scanamtdevice':
                 {
-                    if (args.wanonly == true) return; // This is a WAN-only server, this type of scanning is not allowed.
                     if (common.validateString(command.range, 1, 256) == false) break; // Check range string
+
+                    var scanMesh = null;
+                    if (typeof command.meshid == 'string') {
+                        if (command.meshid.indexOf('/') == -1) { command.meshid = 'mesh/' + domain.id + '/' + command.meshid; }
+                        scanMesh = parent.meshes[command.meshid];
+                        if ((scanMesh == null) || (scanMesh.mtype != 1) || ((parent.GetMeshRights(user, scanMesh) & MESHRIGHT_MANAGECOMPUTERS) == 0)) break;
+                    }
+
+                    // Relay-backed AMT groups scan from the selected MeshAgent using RMCP over UDP port 623.
+                    if ((scanMesh != null) && (typeof scanMesh.relayid == 'string')) {
+                        const relayAgent = parent.wsagents[scanMesh.relayid];
+                        const parsedRange = parent.CreateMeshUserParseAmtScanRange(command.range);
+                        if ((relayAgent == null) || (parsedRange == null) || ((parent.GetNodeRights(user, relayAgent.dbMeshKey, scanMesh.relayid) & 0x00200008) == 0)) {
+                            parent.parent.DispatchEvent(['*', user._id], obj, { action: 'scanamtdevice', range: command.range, results: null, nolog: 1 });
+                            break;
+                        }
+                        const scanid = parent.crypto.randomBytes(16).toString('hex');
+                        if (parent.parent.amtRelayScans == null) { parent.parent.amtRelayScans = {}; }
+                        const scan = { nodeid: scanMesh.relayid, userid: user._id, range: command.range, min: parsedRange.min, max: parsedRange.max, expires: Date.now() + 150000 };
+                        scan.timer = setTimeout(function () {
+                            if (parent.parent.amtRelayScans[scanid] != scan) return;
+                            delete parent.parent.amtRelayScans[scanid];
+                            const error = scan.started ? 'The relay network scan did not complete.' : 'The relay agent did not acknowledge the scan request.';
+                            try { ws.send(JSON.stringify({ action: 'event', event: { action: 'scanamtdevice', range: command.range, results: null, error: error, nolog: 1 } })); } catch (ex) { }
+                        }, 150000);
+                        scan.sessionid = ws.sessionId;
+                        parent.parent.amtRelayScans[scanid] = scan;
+                        try { relayAgent.send(JSON.stringify({ action: 'amtRangeScan', scanid: scanid, range: command.range })); } catch (ex) { clearTimeout(scan.timer); delete parent.parent.amtRelayScans[scanid]; try { ws.send(JSON.stringify({ action: 'event', event: { action: 'scanamtdevice', range: command.range, results: null, error: 'The scan request could not be sent to the relay agent.', nolog: 1 } })); } catch (ex) { } }
+                        break;
+                    }
+
+                    if (args.wanonly == true) {
+                        parent.parent.DispatchEvent(['*', user._id], obj, { action: 'scanamtdevice', range: command.range, results: null, nolog: 1 });
+                        break;
+                    }
 
                     // Ask the RMCP scanning to scan a range of IP addresses
                     if (parent.parent.amtScanner) {
