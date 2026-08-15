@@ -2032,7 +2032,7 @@
                                 }
                                 meshes[message.event.meshid].desc = message.event.desc;
                                 meshes[message.event.meshid].links = message.event.links;
-                                if (message.event.relayid != null) { meshes[message.event.meshid].relayid = message.event.relayid; }
+                                if (message.event.relayid != null) { meshes[message.event.meshid].relayid = message.event.relayid; } else if (Object.prototype.hasOwnProperty.call(message.event, 'relayid')) { delete meshes[message.event.meshid].relayid; }
 
                                 // Check if we lost rights to this mesh in this change.
                                 if (IsMeshViewable(message.event.meshid) == false) {
@@ -3614,7 +3614,7 @@
 
                 // Node
                 var icon = node.icon, nodestate = NodeStateStr(node);
-                if (((!node.conn) || (node.conn == 0)) && (node.mtype != 3)) { icon += ' gray'; }
+                if (((!node.conn) || (node.conn == 0)) && (node.mtype != 3) && (node.amtRoute != 1)) { icon += ' gray'; }
                 div.innerHTML = '<div>' + devNotify + '<div class="i' + icon + ' devList2"></div><div class=devList3><div class=devList4><b>' + name + '</b></div><div class=devList5>' + nodestate + '</div></div></div>';
             } else {
                 div.innerHTML = ''; // Hide
@@ -3740,6 +3740,7 @@
                 if ((node.conn & 8) != 0) { states.push('<span>' + "Relay" + '</span>'); }
                 if ((node.conn & 16) != 0) { states.push('<span>' + "MQTT" + '</span>'); }
             }
+            if (node.amtRoute == 1) { states.push('<span>' + "AMT Relay" + '</span>'); }
             if ((node.pwr != null) && (node.pwr != 0)) { states.push(powerStateStrings[node.pwr]); }
             return states.join(', ');
         }
@@ -4100,7 +4101,7 @@
 
                 // Set the node icon
                 var icon = node.icon;
-                if (((!node.conn) || (node.conn == 0)) && (node.mtype != 3)) { icon += ' gray'; }
+                if (((!node.conn) || (node.conn == 0)) && (node.mtype != 3) && (node.amtRoute != 1)) { icon += ' gray'; }
                 QH('MainComputerImage', '<div class="i' + icon + '"></div>');
 
                 // Request the power timeline
@@ -7590,7 +7591,7 @@
             QH('p20meshName', EscapeHtml(currentMesh.name));
             var meshtype = format("Unknown #{0}", currentMesh.mtype);
             var meshrights = GetMeshRights(currentMesh);
-            if (currentMesh.mtype == 1) meshtype = "Intel&reg; AMT only, no agent";
+            if (currentMesh.mtype == 1) { if (currentMesh.relayid == null) { meshtype = "Intel&reg; AMT only, no agent"; } else { meshtype = "Intel&reg; AMT devices relayed thru agent"; } }
             if (currentMesh.mtype == 2) meshtype = "Managed using a software agent";
             if (currentMesh.mtype == 3) { if (currentMesh.relayid == null) { meshtype = "Local devices, no agent"; } else { meshtype = "No agent devices relayed thru agent"; } }
             if (currentMesh.mtype == 4) { if (currentMesh.relayid == null) { meshtype = "IP-KVM device"; } else { meshtype = "IP-KVM device relayed thru agent"; } if (currentMesh.kvm.model == 1) { meshtype += ', ' + 'Raritan KX III'; } }
@@ -7602,9 +7603,10 @@
             //x += addHtmlValue('Identifier', currentMesh._id.split('/')[2]);
 
             // Display the relay device if applicable
-            if (((currentMesh.mtype == 3) || (currentMesh.mtype == 4)) && (currentMesh.relayid != null)) {
-                var relayName = '<i>' + "Unknown" + '</i>';
+            if ((currentMesh.mtype == 1) || (currentMesh.mtype == 3) || (currentMesh.mtype == 4)) {
+                var relayName = '<i>' + "No relay device" + '</i>';
                 var relayNode = getNodeFromId(currentMesh.relayid);
+                if (currentMesh.relayid != null) { relayName = '<i>' + "Unknown" + '</i>'; }
                 if (relayNode != null) { relayName = EscapeHtml(relayNode.name); }
                 x += addHtmlValue("Relay Device", addLinkConditional(relayName, 'p20editmeshrelay()', (meshrights & 1) != 0));
             }

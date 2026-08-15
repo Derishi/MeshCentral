@@ -793,6 +793,13 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                             if (docs[i].agct != null) { delete docs[i].agct; }
                             if (docs[i].cict != null) { delete docs[i].cict; }
 
+                            // A relay-backed AMT node can be used without a direct AMT connectivity state.
+                            const nodeMesh = parent.meshes[docs[i].meshid];
+                            if ((docs[i].mtype == 1) && (nodeMesh != null) && (typeof nodeMesh.relayid == 'string')) {
+                                const relayAgent = parent.wsagents[nodeMesh.relayid];
+                                if ((relayAgent != null) && ((parent.GetNodeRights(user, relayAgent.dbMeshKey, nodeMesh.relayid) & 0x00200008) != 0)) { docs[i].amtRoute = 1; }
+                            }
+
                             // Add the connection state
                             var state = parent.parent.GetConnectivityState(docs[i]._id);
                             if (state) {
@@ -2166,7 +2173,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         else if ((command.desc != null) && (common.validateString(command.desc, 0, 1024) == false)) { err = 'Invalid group description'; } // Mesh description is between 0 and 1024 characters
                         else if ((command.meshtype < 1) || (command.meshtype > 4)) { err = 'Invalid group type'; } // Device group types are 1 = AMT, 2 = Agent, 3 = Local
                         else if (((command.meshtype == 3) || (command.meshtype == 4)) && (parent.args.wanonly == true) && (typeof command.relayid != 'string')) { err = 'Invalid group type'; } // Local device group type wihtout relay is not allowed in WAN mode
-                        else if (((command.meshtype == 3) || (command.meshtype == 4)) && (parent.args.lanonly == true) && (typeof command.relayid == 'string')) { err = 'Invalid group type'; } // Local device group type with relay is not allowed in WAN mode
+                        else if (((command.meshtype == 1) || (command.meshtype == 3) || (command.meshtype == 4)) && (parent.args.lanonly == true) && (typeof command.relayid == 'string')) { err = 'Invalid group type'; } // Local device group type with relay is not allowed in WAN mode
                         else if ((domain.ipkvm == null) && (command.meshtype == 4)) { err = 'Invalid group type'; } // IP KVM device group type is not allowed unless enabled
                         else if ((command.parent != null) && (typeof command.parent !== 'string' || !parent.meshes[command.parent] || parent.meshes[command.parent].domain !== domain.id)) { err = 'Invalid parent group'; }
                         if ((err == null) && (command.meshtype == 4)) {
@@ -2204,10 +2211,10 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         if (command.meshtype == 4) { mesh.kvm = { model: command.kvmmodel, host: command.kvmhost, user: command.kvmuser, pass: command.kvmpass }; }
 
                         // If this is device group that requires a relay device, store that now
-                        if ((parent.args.lanonly != true) && ((command.meshtype == 3) || (command.meshtype == 4)) && (typeof command.relayid == 'string')) {
+                        if ((parent.args.lanonly != true) && ((command.meshtype == 1) || (command.meshtype == 3) || (command.meshtype == 4)) && (typeof command.relayid == 'string')) {
                             // Check the relay id
                             var relayIdSplit = command.relayid.split('/');
-                            if ((relayIdSplit[0] == 'node') && (relayIdSplit[1] == domain.id)) { mesh.relayid = command.relayid; }
+                            if ((relayIdSplit.length == 3) && (relayIdSplit[0] == 'node') && (relayIdSplit[1] == domain.id)) { mesh.relayid = command.relayid; }
                         }
 
                         // Save the new device group
@@ -2398,9 +2405,14 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                     if ((common.validateInt(command.expireDevs, 0, 2000) == true) && (command.expireDevs != mesh.expireDevs)) { if (change != '') change += ' and auto-remove changed'; else change += 'Device group "' + mesh.name + '" auto-remove changed'; changesids.push(5); if (command.expireDevs == 0) { delete mesh.expireDevs; } else { mesh.expireDevs = command.expireDevs; } }
 
                     var oldRelayNodeId = null, newRelayNodeId = null;
-                    if ((typeof command.relayid == 'string') && ((mesh.mtype == 3) || (mesh.mtype == 4)) && (mesh.relayid != null) && (command.relayid != mesh.relayid)) {
+                    if ((typeof command.relayid == 'string') && ((mesh.mtype == 1) || (mesh.mtype == 3) || (mesh.mtype == 4)) && (command.relayid != mesh.relayid)) {
                         var relayIdSplit = command.relayid.split('/');
-                        if ((relayIdSplit.length == 3) && (relayIdSplit[0] = 'node') && (relayIdSplit[1] == domain.id)) {
+                        if ((command.relayid == '') && (mesh.relayid != null) && (parent.args.wanonly != true)) {
+                            if (change != '') { change += ' and device relay changed'; } else { change = 'Device relay changed'; }
+                            changesids.push(7);
+                            oldRelayNodeId = mesh.relayid;
+                            delete mesh.relayid;
+                        } else if ((parent.args.lanonly != true) && (relayIdSplit.length == 3) && (relayIdSplit[0] == 'node') && (relayIdSplit[1] == domain.id)) {
                             if (change != '') { change += ' and device relay changed'; } else { change = 'Device relay changed'; }
                             changesids.push(7);
                             oldRelayNodeId = mesh.relayid;
@@ -2440,7 +2452,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
 
                     if (change != '') {
                         db.Set(mesh);
-                        var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, flags: mesh.flags, consent: mesh.consent, action: 'meshchange', links: mesh.links, msgid: 142, msgArgs: [mesh.name, changesids], msg: change, domain: domain.id, invite: mesh.invite, expireDevs: command.expireDevs, relayid: mesh.relayid };
+                        var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, flags: mesh.flags, consent: mesh.consent, action: 'meshchange', links: mesh.links, msgid: 142, msgArgs: [mesh.name, changesids], msg: change, domain: domain.id, invite: mesh.invite, expireDevs: command.expireDevs, relayid: ((mesh.relayid == null) ? null : mesh.relayid) };
                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
                         parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(mesh, [user._id, 'server-editmesh']), obj, event);
                     }
@@ -2667,7 +2679,6 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                 }
             case 'addamtdevice':
                 {
-                    if (args.wanonly == true) return; // This is a WAN-only server, local Intel AMT computers can't be added
                     var err = null;
                     // Perform input validation
                     try {
@@ -2684,6 +2695,7 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                             mesh = parent.meshes[command.meshid];
                             if (mesh == null) { err = "Unknown device group"; }
                             if (mesh.mtype != 1) { err = "Intel AMT agentless mesh only allowed"; } // This operation is only allowed for mesh type 1, Intel AMT agentless mesh.
+                            else if ((args.wanonly == true) && (typeof mesh.relayid != 'string')) { err = "Intel AMT relay required"; }
                             // Check if this user has rights to do this
                             else if ((parent.GetMeshRights(user, mesh) & MESHRIGHT_MANAGECOMPUTERS) == 0) { err = "Permission denied"; }
                             else if ((command.meshid.split('/').length != 3) || (command.meshid.split('/')[1] != domain.id)) { err = "Invalid domain"; } // Invalid domain, operation only valid for current domain
@@ -2715,7 +2727,10 @@ module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, use
                         db.Set(device);
 
                         // Event the new node
-                        parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(command.meshid, [nodeid]), obj, { etype: 'node', userid: user._id, username: user.name, action: 'addnode', node: parent.CloneSafeNode(device), msgid: 84, msgArgs: [command.devicename, mesh.name], msg: 'Added device ' + command.devicename + ' to device group ' + mesh.name, domain: domain.id });
+                        const safeDevice = parent.CloneSafeNode(device);
+                        const relayAgent = parent.wsagents[mesh.relayid];
+                        if ((relayAgent != null) && ((parent.GetNodeRights(user, relayAgent.dbMeshKey, mesh.relayid) & 0x00200008) != 0)) { safeDevice.amtRoute = 1; }
+                        parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(command.meshid, [nodeid]), obj, { etype: 'node', userid: user._id, username: user.name, action: 'addnode', node: safeDevice, msgid: 84, msgArgs: [command.devicename, mesh.name], msg: 'Added device ' + command.devicename + ' to device group ' + mesh.name, domain: domain.id });
                         // Send response if required
                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'addamtdevice', responseid: command.responseid, result: 'ok' })); } catch (ex) { } }
                     });

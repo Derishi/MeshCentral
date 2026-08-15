@@ -5232,18 +5232,31 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
             var xusername = '', xdevicename = '', xdevicename2 = null, node = null;
             node = docs[0]; xdevicename2 = node.name; xdevicename = '-' + parent.common.makeFilename(node.name); ws.id = getRandomPassword(); ws.time = Date.now();
             if (!node.intelamt) { console.log('ERR: Not AMT node'); try { ws.close(); } catch (e) { } return; } // Disconnect websocket
-            var ciraconn = parent.mpsserver.GetConnectionToNode(req.query.host, null, false);
 
             // Check if this user has permission to manage this computer
             if ((obj.GetNodeRights(user, node.meshid, node._id) & MESHRIGHT_REMOTECONTROL) == 0) { console.log('ERR: Access denied (3)'); try { ws.close(); } catch (e) { } return; }
 
+            // A relay-configured AMT group is routed exclusively through its selected MeshAgent.
+            var amtRelayNodeId = null, amtRelayAgent = null;
+            var amtMesh = obj.meshes[node.meshid];
+            if ((amtMesh != null) && (amtMesh.mtype == 1) && (typeof amtMesh.relayid == 'string')) {
+                amtRelayNodeId = amtMesh.relayid;
+                amtRelayAgent = obj.wsagents[amtRelayNodeId];
+                if ((amtRelayAgent == null) || ((obj.GetNodeRights(user, amtRelayAgent.dbMeshKey, amtRelayNodeId) & 0x00200008) == 0)) {
+                    parent.debug('web', 'ERR: AMT relay is unavailable or unauthorized');
+                    try { ws.close(); } catch (e) { }
+                    return;
+                }
+            }
+            var ciraconn = (amtRelayNodeId == null) ? parent.mpsserver.GetConnectionToNode(req.query.host, null, false) : null;
+
             // Check what connectivity is available for this node
             var state = parent.GetConnectivityState(req.query.host);
             var conn = 0;
-            if (!state || state.connectivity == 0) { parent.debug('web', 'ERR: No routing possible (1)'); try { ws.close(); } catch (e) { } return; } else { conn = state.connectivity; }
+            if ((amtRelayNodeId == null) && (!state || state.connectivity == 0)) { parent.debug('web', 'ERR: No routing possible (1)'); try { ws.close(); } catch (e) { } return; } else if (state != null) { conn = state.connectivity; }
 
             // Check what server needs to handle this connection
-            if ((obj.parent.multiServer != null) && ((cookie == null) || (cookie.ps != 1))) { // If a cookie is provided and is from a peer server, don't allow the connection to jump again to a different server
+            if ((amtRelayNodeId == null) && (obj.parent.multiServer != null) && ((cookie == null) || (cookie.ps != 1))) { // If a cookie is provided and is from a peer server, don't allow the connection to jump again to a different server
                 var server = obj.parent.GetRoutingServerId(req.query.host, 2); // Check for Intel CIRA connection
                 if (server != null) {
                     if (server.serverid != obj.parent.serverId) {
@@ -5326,8 +5339,79 @@ module.exports.CreateWebServer = function (parent, db, args, certificates, doneF
                 }
             }
 
-            // If Intel AMT CIRA connection is available, use it
-            if (ciraconn != null) {
+            // If a group relay is configured, route AMT traffic through that MeshAgent.
+            if (amtRelayNodeId != null) {
+                if ((typeof node.host != 'string') || (node.host.length == 0)) {
+                    parent.debug('web', 'ERR: AMT relay target host is invalid');
+                    try { ws.close(); } catch (ex) { }
+                    return;
+                }
+                var port = (node.intelamt.tls > 0) ? 16993 : 16992;
+                if ((req.query.p == 2) || (req.query.p == 4)) { port += 2; }
+                const AmtAgentRelay = require('./amt/amt-agent-relay.js');
+                var agentRelay = null;
+                try {
+                    agentRelay = AmtAgentRelay.CreateAmtAgentRelay(obj, domain, amtRelayNodeId, node.host, port);
+                } catch (ex) {
+                    parent.debug('web', 'ERR: Unable to create AMT relay channel', ex);
+                    try { ws.close(); } catch (e) { }
+                    return;
+                }
+                var forwardClient = null, relayTlsSocket = null;
+
+                function forwardAmtData(data) {
+                    if (typeof data == 'string') { data = Buffer.from(data, 'binary'); }
+                    if (ws.interceptor) { data = ws.interceptor.processAmtData(data); }
+                    if (ws.logfile == null) {
+                        try { ws.send(data); } catch (ex) { }
+                    } else {
+                        obj.meshRelayHandler.recordingEntry(ws.logfile, 2, 0, data, function () { try { ws.send(data); } catch (ex) { } });
+                    }
+                }
+
+                function closeAgentRelay() {
+                    if (relayTlsSocket != null) { try { relayTlsSocket.destroy(); } catch (ex) { } }
+                    agentRelay.close();
+                }
+
+                ws._socket.pause();
+                ws.on('message', function (msg) {
+                    if (typeof msg == 'string') { msg = Buffer.from(msg, 'binary'); }
+                    if (ws.interceptor) { msg = ws.interceptor.processBrowserData(msg); }
+                    if (forwardClient == null) return;
+                    if (ws.logfile == null) {
+                        try { forwardClient.write(msg); } catch (ex) { }
+                    } else {
+                        obj.meshRelayHandler.recordingEntry(ws.logfile, 2, 2, msg, function () { try { forwardClient.write(msg); } catch (ex) { } });
+                    }
+                });
+                ws.on('close', closeAgentRelay);
+                ws.on('error', closeAgentRelay);
+
+                if (req.query.p == 1) { ws.interceptor = obj.interceptor.CreateHttpInterceptor({ host: node.host, port: port, user: node.intelamt.user, pass: node.intelamt.pass }); }
+                else if (req.query.p == 2) { ws.interceptor = obj.interceptor.CreateRedirInterceptor({ user: node.intelamt.user, pass: node.intelamt.pass }); }
+
+                agentRelay.onStateChange = function (connection, state) {
+                    if (state == 0) { try { ws.close(); } catch (ex) { } return; }
+                    if (node.intelamt.tls > 0) {
+                        var ser = new SerialTunnel();
+                        ser.forwardwrite = function (data) { if (data.length > 0) { agentRelay.write(data); } };
+                        agentRelay.onData = function (connection, data) { if (data.length > 0) { ser.updateBuffer(data); } };
+                        const tlsoptions = { socket: ser, ciphers: 'RSA+AES:!aNULL:!MD5:!DSS', secureOptions: constants.SSL_OP_NO_SSLv2 | constants.SSL_OP_NO_SSLv3 | constants.SSL_OP_NO_COMPRESSION | constants.SSL_OP_CIPHER_SERVER_PREFERENCE | constants.SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION, rejectUnauthorized: false };
+                        if (req.query.tls1only == 1) { tlsoptions.secureProtocol = 'TLSv1_method'; } else { tlsoptions.minVersion = 'TLSv1'; }
+                        relayTlsSocket = obj.tls.connect(tlsoptions, function () { ws._socket.resume(); });
+                        relayTlsSocket.setEncoding('binary');
+                        relayTlsSocket.on('data', forwardAmtData);
+                        relayTlsSocket.on('error', closeAgentRelay);
+                        forwardClient = relayTlsSocket;
+                    } else {
+                        agentRelay.onData = function (connection, data) { if (data.length > 0) { forwardAmtData(data); } };
+                        forwardClient = agentRelay;
+                        ws._socket.resume();
+                    }
+                };
+                agentRelay.start();
+            } else if (ciraconn != null) {
                 parent.debug('web', 'Opening relay CIRA channel connection to ' + req.query.host + '.');
 
                 // TODO: If the CIRA connection is a relay or LMS connection, we can't detect the TLS state like this.

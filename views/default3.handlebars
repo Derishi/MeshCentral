@@ -4502,7 +4502,7 @@
                                 if (message.event.amt) { meshes[message.event.meshid].amt = message.event.amt; }
                                 if (message.event.invite != null) { meshes[message.event.meshid].invite = message.event.invite; } else { delete meshes[message.event.meshid].invite; }
                                 if (message.event.expireDevs != null) { if (message.event.expireDevs > 0) { meshes[message.event.meshid].expireDevs = message.event.expireDevs; } else { delete meshes[message.event.meshid].expireDevs; } }
-                                if (message.event.relayid != null) { meshes[message.event.meshid].relayid = message.event.relayid; }
+                                if (message.event.relayid != null) { meshes[message.event.meshid].relayid = message.event.relayid; } else if (Object.prototype.hasOwnProperty.call(message.event, 'relayid')) { delete meshes[message.event.meshid].relayid; }
 
                                 // Check if we lost rights to this mesh in this change.
                                 if (IsMeshViewable(message.event.meshid) == false) {
@@ -5987,7 +5987,7 @@
 
             // Node
             var icon = node.icon;
-            if (((!node.conn) || (node.conn == 0)) && (node.mtype != 3)) { icon += ' gray'; }
+            if (((!node.conn) || (node.conn == 0)) && (node.mtype != 3) && (node.amtRoute != 1)) { icon += ' gray'; }
 
             if (view == 1) {
                 div.innerHTML = '<table id=devs cmenu=devsContentMenu onmouseover=devMouseHover(this,1) onmouseout=devMouseHover(this,0) style=width:100%;height:100%><tr><td style=width:22px><input class="' + node.meshid + ' DeviceCheckbox form-check-input me-2" onchange=p1devcheck(event) value=devid_' + node._id + ' type=checkbox ' + (checkedNodeids[node._id] ? ' checked' : '') + '></td><td><table onmouseup=gotoDevice(\'' + node._id + '\',null,null,event) border=0 cellspacing=0 style=width:100%;height:100%;cursor:pointer><tr><td style=width:50px tabindex=0 onkeypress="if (event.key==\'Enter\') gotoDevice(\'' + node._id + '\',null,null,event)"><div class="i' + icon + '" style=width:50px></div></td><td class=g1t></td><td class=e2t><div class=e1t style=width:' + ((div.clientWidth) - 120) + 'px title="' + title + '">' + name + '</div><div>' + NodeStateStr(node) + '</div></td><td class=g2t></td></tr></table></td></tr></table>' + devNotify;
@@ -6010,6 +6010,7 @@
                     if ((node.conn & 8) != 0) { states.push('<span title="' + "Mesh agent is reachable using another agent as relay." + '">' + "Relay" + '</span>'); }
                     if ((node.conn & 16) != 0) { states.push('<span title="' + "MQTT connection to the device is active." + '">' + "MQTT" + '</span>'); }
                 }
+                if (node.amtRoute == 1) { states.push('<span title="' + "Intel&reg; AMT is reachable through the selected relay agent." + '">' + "AMT Relay" + '</span>'); }
                 if (node.mtype == 3) {
                     var mesh = meshes[node.meshid];
                     if (mesh && mesh.relayid) {
@@ -7119,6 +7120,7 @@
                 if ((node.conn & 8) != 0) { states.push('<span title="' + "Mesh agent is reachable using another agent as relay." + '">' + "Relay" + '</span>'); }
                 if ((node.conn & 16) != 0) { states.push('<span title="' + "MQTT connection to the device is active." + '">' + "MQTT" + '</span>'); }
             }
+            if (node.amtRoute == 1) { states.push('<span title="' + "Intel&reg; AMT can be reached through the selected relay agent." + '">' + "AMT Relay" + '</span>'); }
             if ((node.pwr != null) && (node.pwr != 0)) { states.push(powerStateStrings[node.pwr]); }
             if (states.length == 0) return '&nbsp;';
             return states.join(', ');
@@ -9322,6 +9324,7 @@
                 if ((connectivity & 2) != 0) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="' + "Intel&reg; AMT connected" + '">' + "Intel&reg; AMT connected" + '</span>'; }
                 else if ((connectivity & 4) != 0) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="' + "Intel&reg; AMT detected" + '">' + "Intel&reg; AMT detected" + '</span>'; }
                 if ((connectivity & 16) != 0) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="' + "MQTT connected" + '">' + "MQTT channel connected" + '</span>'; }
+                if (node.amtRoute == 1) { if (powerstate.length > 0) { powerstate += '<br/>'; } powerstate += '<span style=font-size:12px title="' + "Intel&reg; AMT can be reached through the selected relay agent" + '">' + "AMT Relay ready" + '</span>'; }
                 if ((powerstate == '') && node.lastconnect) { powerstate = '<span style=font-size:12px>' + "Last seen:" + '<br />' + printDateTime(new Date(node.lastconnect)) + '</span>'; }
                 else {
                     if (node.porttype == 'PDU') { powerstate += ('<br/>' + powerStateStrings[node.pwr]); }
@@ -9331,7 +9334,7 @@
 
                 // Set the node icon
                 Q('MainComputerImage').setAttribute('src', 'images/icons256-' + node.icon + '-1.png');
-                Q('MainComputerImage').className = ((((!node.conn) || (node.conn == 0)) && (node.mtype != 3)) ? 'gray' : '');
+                Q('MainComputerImage').className = ((((!node.conn) || (node.conn == 0)) && (node.mtype != 3) && (node.amtRoute != 1)) ? 'gray' : '');
 
                 // If we are looking at a local non-windows device, enable terminal capability.
                 if ((node.mtype == 3) && (node.agent != null) && (node.agent.id > 4) && (features2 & 0x00000200)) { node.agent.caps = 6; } // 1 = Terminal, 2 = Desktop, 4 = files
@@ -9355,7 +9358,7 @@
                 QV('MainDevRegistry', (node.agent != null) && isWindowsNode(node) && (meshrights & 8) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 4194304) == 0)));
                 QV('MainDevInfo', (node.mtype < 3) && ((meshrights & 1048576) != 0));
                 QV('MainDevApps', (node.agent != null) && (meshrights & 8) && ((meshrights == 0xFFFFFFFF) || ((meshrights & 8388608) == 0)));
-                QV('MainDevAmt', (node.intelamt != null) && ((node.intelamt.state == 2) || (node.conn & 2)) && (meshrights & 8) && amtAccess);
+                QV('MainDevAmt', (node.intelamt != null) && ((node.intelamt.state == 2) || (node.conn & 2) || (node.amtRoute == 1)) && (meshrights & 8) && amtAccess);
                 QV('MainDevConsole', (consoleRights && ((node.agent != null) && (node.agent.caps != null) && ((node.agent.caps & 8) != 0))) && (meshrights & 8));
                 QV('MainDevPlugins', false);
                 QV('p15uploadCore', (node.agent != null) && (node.agent.caps != null) && ((node.agent.caps & 16) != 0));
@@ -9373,7 +9376,7 @@
                 // Setup/Refresh Intel AMT tab
                 var amtFrameNode = Q('p14iframe').contentWindow.getCurrentMeshNode();
                 if ((amtFrameNode != null) && (amtFrameNode._id != currentNode._id)) { Q('p14iframe').contentWindow.disconnect(); }
-                var online = ((node.conn & 6) != 0); // If CIRA (2) or AMT (4) connected, enable Commander
+                var online = ((node.conn & 6) != 0) || (node.amtRoute == 1); // If CIRA (2), AMT (4), or a relay route is available, enable Commander
                 Q('p14iframe').contentWindow.setConnectionState(online);
                 Q('p14iframe').contentWindow.setFrameHeight('650px');
                 Q('p14iframe').contentWindow.setAuthCallback(updateAmtCredentials);
@@ -10868,7 +10871,7 @@
             } else {
                 QH('desktopCustomUpperRight', '');
             }
-            var hwonline = ((currentNode.conn & 6) != 0); // If CIRA (2) or AMT (4) connected, enable hardware terminal
+            var hwonline = ((currentNode.conn & 6) != 0) || (currentNode.amtRoute == 1); // If CIRA (2), AMT (4), or a relay route is available, enable hardware terminal
             QE('connectbutton1h', hwonline);
             QV('deskFocusBtn', (desktop != null) && (desktop.contype == 2) && (deskState != 0) && (desktopsettings.showfocus));
             QE('DeskClip', deskState == 3);
@@ -12934,8 +12937,8 @@
             QV('connectbutton2span', (termState == false) && (terminalNode.agent != null) && (terminalNode.agent.caps & 2) && (terminalNode.mtype != 3));
             QV('connectbutton2sspan', (features2 & 0x00000200) && (termState == false) && (terminalNode.agent != null) && (terminalNode.agent.caps & 2) && (terminalNode.agent.id != 3) && ((features2 & 0x1000000) == 0));
             if (terminalNode.mtype == 1) {
-                QV('connectbutton2hspan', (termState == false) && (terminalNode.intelamt != null) && (terminalNode.intelamt.state == 2));
-                QV('terminalSizeDropDown', (termState == false) && (terminalNode.intelamt != null) && (terminalNode.intelamt.state == 2));
+                QV('connectbutton2hspan', (termState == false) && (terminalNode.intelamt != null) && ((terminalNode.intelamt.state == 2) || (terminalNode.amtRoute == 1)));
+                QV('terminalSizeDropDown', (termState == false) && (terminalNode.intelamt != null) && ((terminalNode.intelamt.state == 2) || (terminalNode.amtRoute == 1)));
             } else {
                 QV('connectbutton2hspan', (termState == false) && (terminalNode.intelamt != null) && (terminalNode.intelamt.state == 2) && (terminalNode.intelamt.ver != null));
                 QV('terminalSizeDropDown', (termState == false) && (terminalNode.intelamt != null) && (terminalNode.intelamt.state == 2) && (terminalNode.intelamt.ver != null));
@@ -12953,7 +12956,7 @@
             var online = ((terminalNode.conn & 1) != 0) || (terminalNode.mtype == 3); // If Agent (1) connected, enable Terminal
             QE('connectbutton2', online); QE('connectbutton2d', online); // Terminal Connect and dropdown
             QE('connectbutton2s', online); QE('connectbutton2sd', online); // Terminal SSH Connect and dropdown
-            var hwonline = ((terminalNode.conn & 6) != 0); // If CIRA (2) or AMT (4) connected, enable hardware terminal
+            var hwonline = ((terminalNode.conn & 6) != 0) || (terminalNode.amtRoute == 1); // If CIRA (2), AMT (4), or a relay route is available, enable hardware terminal
             QE('connectbutton2h', hwonline);
 
             // Key buttons
@@ -16926,7 +16929,7 @@
 
             x += addHtmlFormFloating("Name", '<input id=dp2meshname maxlength=128 placeholder="Name" class=form-control onchange=account_validateMeshCreate() onkeyup=account_validateMeshCreate(event,1) />');
             if ((features & 1) == 0) { localGroupType += '<option value=3>' + "Local devices, no agent" + '</option>'; }
-            if (((features & 2) == 0) && (relayDevices.length > 0)) { localGroupType += '<option value=103>' + "No agent devices relayed thru agent" + '</option>'; }
+            if (((features & 2) == 0) && (relayDevices.length > 0)) { localGroupType += '<option value=101>' + "Intel&reg; AMT devices relayed thru agent" + '</option><option value=103>' + "No agent devices relayed thru agent" + '</option>'; }
             if (features2 & 0x10000) {
                 if ((features & 1) == 0) { localGroupType += '<option value=4>' + "IP-KVM / Power device" + '</option>'; }
                 if (((features & 2) == 0) && (relayDevices.length > 0)) { localGroupType += '<option value=104>' + "IP-KVM / Power device relayed thru agent" + '</option>'; }
@@ -17287,7 +17290,7 @@
             QV('MeshSummary', (currentMesh.mtype != 4));
 
             var meshtype = format("Unknown #{0}", currentMesh.mtype);
-            if (currentMesh.mtype == 1) meshtype = "Intel&reg; AMT only, no agent";
+            if (currentMesh.mtype == 1) { if (currentMesh.relayid == null) { meshtype = "Intel&reg; AMT only, no agent"; } else { meshtype = "Intel&reg; AMT devices relayed thru agent"; } }
             if (currentMesh.mtype == 2) meshtype = "Managed using a software agent";
             if (currentMesh.mtype == 3) { if (currentMesh.relayid == null) { meshtype = "Local devices, no agent"; } else { meshtype = "No agent devices relayed thru agent"; } }
             if (currentMesh.mtype == 4) { if (currentMesh.relayid == null) { meshtype = "IP-KVM device"; } else { meshtype = "IP-KVM device relayed thru agent"; } if (currentMesh.kvm.model == 1) { meshtype += ', ' + 'Raritan KX III'; } }
@@ -17301,9 +17304,10 @@
             //x += addHtmlValue('Identifier', currentMesh._id.split('/')[2]);
 
             // Display the relay device if applicable
-            if (((currentMesh.mtype == 3) || (currentMesh.mtype == 4)) && (currentMesh.relayid != null)) {
-                var relayName = '<i>' + "Unknown" + '</i>';
+            if ((currentMesh.mtype == 1) || (currentMesh.mtype == 3) || (currentMesh.mtype == 4)) {
+                var relayName = '<i>' + "No relay device" + '</i>';
                 var relayNode = getNodeFromId(currentMesh.relayid);
+                if (currentMesh.relayid != null) { relayName = '<i>' + "Unknown" + '</i>'; }
                 if (relayNode != null) { relayName = EscapeHtml(relayNode.name) + ' (' + EscapeHtml(relayNode.meshnamel) + ')'; }
                 x += addHtmlValue("Relay Device", addLinkConditional(relayName, 'p20editmeshrelay()', (meshrights & 1) != 0));
             }
@@ -17743,7 +17747,7 @@
                 setModalContent('xxAddAgent', "Edit Device Group", "No relay devices available.");
                 showModal('xxAddAgentModal', 'idx_dlgOkButton');
             } else {
-                var relayDevices2 = [];
+                var relayDevices2 = ['<option value="">' + "No relay device" + '</option>'];
                 for (var i in relayDevices) { relayDevices2.push('<option value="' + (relayDevices[i]._id + '"' + ((currentMesh.relayid == relayDevices[i]._id) ? ' selected' : '')) + '>' + EscapeHtml(relayDevices[i].name) + ' (' + EscapeHtml(relayDevices[i].meshnamel) + ')' + '</option>'); }
                 var x = addHtmlFormFloating("Relay Device", '<select id=d2devrelay class="form-select">' + relayDevices2.join('') + '</select>');
                 setModalContent('xxAddAgent', "Edit Device Group", x);
