@@ -28,6 +28,8 @@ For more information, [visit MeshCentral.com](https://meshcentral.com).
 
 The [Design and Architecture Guide](https://meshcentral.com/docs/MeshCentral2DesignArchitecture.pdf) is a short document that includes information on the design overview, dependencies, source code descriptions of each file, certificates, TLS security, the agent to server handshake, browser to agent relay and WebRTC and the messenger service.
 
+**Fork-specific:** [Intel AMT over Relay](docs/amt-relay.md) — reach Intel AMT / vPro devices through a MeshCentral relay agent (AMT traffic routed through a MeshAgent), including the relay channel, server routing, device group types, and the range scanners.
+
 ## Video Tutorials
 You can watch many tutorial videos on the [MeshCentral YouTube Channel](https://www.youtube.com/channel/UCJWz607A8EVlkilzcrb-GKg/videos). Two videos to get started involve installation and basic usages.
 
